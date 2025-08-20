@@ -47,10 +47,21 @@ class EmbyClient:
         resp.raise_for_status()
         return resp
 
-    def update_person(self, item_id: str, new_name: str):
-        data = self.get(f"/emby/Items/{item_id}")
-        data["Name"] = new_name
-        self.post(f"/emby/Items/{item_id}", json_body=data)
+    def update_person(self, item_id: str, new_name: str) -> bool:
+        """Update person name.
+
+        Returns True on success, False if the person was not found (HTTP 404).
+        Other HTTP errors are raised.
+        """
+        try:
+            data = self.get(f"/emby/Items/{item_id}")
+            data["Name"] = new_name
+            self.post(f"/emby/Items/{item_id}", json_body=data)
+            return True
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code == 404:
+                return False
+            raise
 
     def iter_persons(self, limit: int | None = None):
         start = 0
@@ -78,7 +89,8 @@ class EmbyClient:
 
 def rename_persons(client: EmbyClient, dry_run: bool = False, limit: int | None = None):
     persons = list(client.iter_persons(limit=limit))
-    changes = []
+    changes: list[dict] = []
+    not_found: list[str] = []
     for p in persons:
         name = p.get("Name", "")
         if "/" in name:
@@ -88,11 +100,15 @@ def rename_persons(client: EmbyClient, dry_run: bool = False, limit: int | None 
                     changes.append({"id": p["Id"], "old": name, "new": new_name, "action": "would_rename"})
                 else:
                     try:
-                        client.update_person(p["Id"], new_name)
-                        changes.append({"id": p["Id"], "old": name, "new": new_name, "action": "renamed"})
+                        success = client.update_person(p["Id"], new_name)
+                        if success:
+                            changes.append({"id": p["Id"], "old": name, "new": new_name, "action": "renamed"})
+                        else:
+                            not_found.append(p["Id"])
+                            print(f"[!] 未找到该 Id {p['Id']}")
                     except Exception as e:
                         changes.append({"id": p["Id"], "old": name, "new": new_name, "action": "error", "error": str(e)})
-    return changes
+    return changes, not_found
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -109,11 +125,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     client = EmbyClient(args.server, args.api_key, args.user_id)
-    changes = rename_persons(client, dry_run=args.dry_run, limit=args.limit)
+    changes, missing = rename_persons(client, dry_run=args.dry_run, limit=args.limit)
 
     print(f"[i] 共检测到 {len(changes)} 个需要改名的演员")
     for c in changes:
         print(f"[{c['action']}] {c['old']} -> {c['new']}")
+    if missing:
+        print(f"[!] 共 {len(missing)} 个 Id 未找到: {', '.join(missing)}")
     return 0
 
 
