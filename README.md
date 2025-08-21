@@ -1,3 +1,5 @@
+**Read this in other languages: [English](README.md), [中文](README_zh.md).**
+
 # NFO Metadata Universal Cleaner
 
 A powerful **Python script** designed to automate the scanning, cleaning, and standardization of `.nfo` metadata files in your media library. With an external configuration file, you can precisely control various cleaning and mapping rules to build a clean and unified media information hub.
